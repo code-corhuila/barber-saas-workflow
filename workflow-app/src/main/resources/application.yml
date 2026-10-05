@@ -1,0 +1,20 @@
+server:
+  port: ${PORT:8080}
+  shutdown: graceful            # stop accepting, let in-flight requests finish
+  tomcat:
+    connection-timeout: 5s      # time to receive the request line and headers
+    keep-alive-timeout: 60s
+    threads:
+      max: 200
+spring:
+  application:
+    name: workflow
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  autoconfigure:
+    # The pool is built in WorkflowConfiguration (the composition root), not by auto-configuration.
+    exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+logging:
+  structured:
+    format:
+      console: ecs              # one JSON object per line; the MDC adds correlationId
