@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -17,6 +19,11 @@ class HealthHttpTest {
 
     @Autowired
     private MockMvc http;
+
+    @DynamicPropertySource
+    static void keys(DynamicPropertyRegistry registry) {
+        TestKeys.register(registry);
+    }
 
     @Test
     void health_answers_ok_and_echoes_a_correlation_id() throws Exception {
@@ -28,7 +35,7 @@ class HealthHttpTest {
 
     @Test
     void an_unknown_route_answers_with_the_envelope() throws Exception {
-        http.perform(get("/api/v1/nothing")).andExpect(status().isNotFound())
+        http.perform(get("/nothing")).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.traceId").isNotEmpty());
     }

@@ -1,7 +1,10 @@
 package co.edu.corhuila.barbersaas.workflow.adapter.in.http;
 
 import co.edu.corhuila.barbersaas.workflow.adapter.in.http.ApiError.ForbiddenException;
+import co.edu.corhuila.barbersaas.workflow.adapter.in.http.ApiError.NotFoundException;
 import co.edu.corhuila.barbersaas.workflow.adapter.in.http.ApiError.ValidationException;
+import co.edu.corhuila.barbersaas.workflow.application.port.in.OwnerOnboardingUseCases.IdempotencyKeyReused;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -31,6 +34,16 @@ public class ErrorHandler {
     @ExceptionHandler(ForbiddenException.class)
     ResponseEntity<ApiError> forbidden(ForbiddenException e) {
         return respond(HttpStatus.FORBIDDEN, ApiError.of(ApiError.FORBIDDEN, e.getMessage()));
+    }
+
+    @ExceptionHandler({NotFoundException.class, MethodArgumentTypeMismatchException.class})
+    ResponseEntity<ApiError> notFound(RuntimeException e) {
+        return respond(HttpStatus.NOT_FOUND, ApiError.of(ApiError.NOT_FOUND, "The resource was not found"));
+    }
+
+    @ExceptionHandler(IdempotencyKeyReused.class)
+    ResponseEntity<ApiError> keyReused(IdempotencyKeyReused e) {
+        return respond(HttpStatus.UNPROCESSABLE_ENTITY, ApiError.of(ApiError.BUSINESS_RULE_VIOLATION, e.getMessage()));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
