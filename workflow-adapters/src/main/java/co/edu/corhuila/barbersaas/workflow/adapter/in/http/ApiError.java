@@ -50,4 +50,11 @@ public record ApiError(String error, String message, List<FieldError> details, S
             super("You are not allowed to perform this action");
         }
     }
+
+    /** It does not exist, or the caller may not see it: the answer is the same 404 for both. */
+    public static class NotFoundException extends RuntimeException {
+        public NotFoundException() {
+            super("The resource was not found");
+        }
+    }
 }
