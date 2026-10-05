@@ -1,0 +1,25 @@
+# barber-saas-infra includes this file. The workflow schema is versioned here, not in a -db
+# repository (ADR-009): this runner applies it to the single PostgreSQL instance of
+# barber-saas-infra with its own changelog tables (Annex J J.6). It starts only on demand:
+#   docker compose --env-file env/dev.env run --rm workflow-db-migrate     (from barber-saas-infra)
+services:
+  workflow-db-migrate:
+    image: liquibase/liquibase:4.29
+    profiles: [tooling]
+    volumes:
+      - ../db:/workspace:ro
+    entrypoint: ["liquibase",
+      "--search-path=/workspace",
+      "--changelog-file=changelog-master.yaml",
+      "--url=jdbc:postgresql://postgres:5432/${PG_DATABASE:?set PG_DATABASE}",
+      "--username=${PG_ADMIN_USER:?set PG_ADMIN_USER}",
+      "--password=${PG_ADMIN_PASSWORD:?set PG_ADMIN_PASSWORD}",
+      "--database-changelog-table-name=databasechangelog_workflow",
+      "--database-changelog-lock-table-name=databasechangeloglock_workflow"]
+    command: ["update"]
+    networks: [platform]
+
+networks:
+  platform:
+    name: platform
+    external: true
