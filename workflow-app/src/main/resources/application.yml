@@ -18,3 +18,11 @@ logging:
   structured:
     format:
       console: ecs              # one JSON object per line; the MDC adds correlationId
+workflow:
+  database:
+    # Empty: in-memory saga store. The schema is migrated by workflow-db-migrate, never by this service.
+    url: ${DATABASE_URL:}
+    user: ${DATABASE_USER:}
+    password: ${DATABASE_PASSWORD:}
+    pool-max: ${DB_POOL_MAX:5}
+    statement-timeout-ms: ${DB_STATEMENT_TIMEOUT_MS:5000}
