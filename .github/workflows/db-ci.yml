@@ -1,0 +1,67 @@
+name: Database rebuild
+
+# The workflow schema (ADR-009) must build from an EMPTY database, apply nothing on a second run,
+# roll back completely and apply again. The job first prepares what the single instance provides
+# in every environment (the workflow_app user, Annex J J.7).
+
+on:
+  pull_request:
+    branches: [develop, qa, main]
+    paths: ['db/**', '.github/workflows/db-ci.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_DB: barbersaas
+          POSTGRES_USER: barbersaas_admin
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U barbersaas_admin -d barbersaas"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare the instance as barber-saas-infra does
+        env:
+          PGPASSWORD: ci-only
+        run: |
+          psql -h localhost -U barbersaas_admin -d barbersaas -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE workflow_app LOGIN PASSWORD 'ci-only'"
+      - name: Apply, roll everything back, apply again
+        run: |
+          lb() {
+            docker run --rm --network host -v "$PWD/db:/workspace:ro" liquibase/liquibase:4.29 \
+              --search-path=/workspace --changelog-file=changelog-master.yaml \
+              --url=jdbc:postgresql://localhost:5432/barbersaas \
+              --username=barbersaas_admin --password=ci-only \
+              --database-changelog-table-name=databasechangelog_workflow \
+              --database-changelog-lock-table-name=databasechangeloglock_workflow "$@"
+          }
+          lb update
+          lb update | tee second.txt
+          grep -q "Run:  *0" second.txt || { echo "second update applied changes: not incremental"; exit 1; }
+          lb rollback-count 999
+          lb update
+      - name: workflow_app writes its own schema and nothing else (Annex J J.10)
+        env:
+          PGPASSWORD: ci-only
+        run: |
+          psql -h localhost -U workflow_app -d barbersaas -v ON_ERROR_STOP=1 -c "
+            INSERT INTO workflow.saga (id, type, status, idempotency_key, request_hash)
+            VALUES (gen_random_uuid(), 'owner-onboarding', 'RUNNING', 'ci-key-0001', 'hash');
+            UPDATE workflow.saga SET status = 'COMPLETED', completed_steps = '{create-barbershop,create-owner}';"
+          if psql -h localhost -U workflow_app -d barbersaas -c "CREATE TABLE public.x (id int)" 2>/dev/null; then
+            echo "workflow_app could create a table outside its schema"; exit 1
+          fi
