@@ -1,0 +1,69 @@
+databaseChangeLog:
+  - changeSet:
+      id: ddl-schema-001
+      author: Pipecerquera
+      labels: "HU-AUTH-003"
+      comment: "The workflow schema, in the single instance (ADR-009). Nothing lives in public (Annex J J.4)."
+      changes:
+        - sqlFile:
+            path: 001_create_schema_workflow.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: rollbacks/001_create_schema_workflow.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+  - changeSet:
+      id: dcl-roles-002
+      author: Pipecerquera
+      labels: "HU-AUTH-003"
+      comment: "workflow_reader and workflow_writer, NOLOGIN."
+      changes:
+        - sqlFile:
+            path: 002_create_roles.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: rollbacks/002_create_roles.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+  - changeSet:
+      id: ddl-tables-003
+      author: Pipecerquera
+      labels: "HU-AUTH-003"
+      comment: "The saga table: state after every step and compensation."
+      changes:
+        - sqlFile:
+            path: 003_create_saga.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: rollbacks/003_create_saga.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+  - changeSet:
+      id: dcl-grants-004
+      author: Pipecerquera
+      labels: "HU-AUTH-003"
+      comment: "Schema grants and workflow_writer to workflow_app."
+      changes:
+        - sqlFile:
+            path: 004_grants.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: rollbacks/004_grants.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
