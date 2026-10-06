@@ -1,8 +1,8 @@
-# barber-saas-infra includes this file. The workflow schema is versioned here, not in a -db
+# barber-saas-infra-postgres includes this file. The workflow schema is versioned here, not in a -db
 # repository (ADR-009): this runner applies it to the single PostgreSQL instance of
-# barber-saas-infra with its own changelog tables (Annex J J.6). It starts only on demand:
-#   docker compose --env-file env/dev.env run --rm workflow-db-migrate     (from barber-saas-infra)
-# This file also defines the workflow service itself; barber-saas-infra includes it to compose the platform.
+# barber-saas-infra-postgres with its own changelog tables (Annex J J.6). It starts only on demand:
+#   docker compose --env-file env/dev.env run --rm workflow-db-migrate     (from barber-saas-infra-postgres)
+# This file also defines the workflow service itself; barber-saas-infra-postgres includes it to compose the platform.
 services:
   workflow:
     build:
@@ -15,9 +15,9 @@ services:
       DATABASE_USER: workflow_app
       DATABASE_PASSWORD: ${WORKFLOW_APP_PASSWORD:?set WORKFLOW_APP_PASSWORD}
       # Every service validates tokens itself with the public key (norm 5.3.7).
-      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?run barber-saas-infra/scripts/dev-keys.sh}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?run barber-saas-infra-postgres/scripts/dev-keys.sh}
       # Its own service token, sub barber-saas-workflow (07-api/authentication.md).
-      SERVICE_TOKEN: ${WORKFLOW_SERVICE_TOKEN:?run barber-saas-infra/scripts/dev-keys.sh}
+      SERVICE_TOKEN: ${WORKFLOW_SERVICE_TOKEN:?run barber-saas-infra-postgres/scripts/dev-keys.sh}
       BARBERSHOP_API_URL: http://barbershop-api:8080
       IDENTITY_AUTH_API_URL: http://identity-auth-api:8080
       DB_POOL_MAX: "5"
