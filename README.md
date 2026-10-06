@@ -46,7 +46,7 @@ Spring), `workflow-adapters` (HTTP in, HTTP clients to the participants, JDBC) a
 
 ### How to start it
 
-As part of the platform: `./scripts/up.sh dev` in `barber-saas-infra`, which migrates the schema
+As part of the platform: `./scripts/up.sh dev` in `barber-saas-infra-postgres`, which migrates the schema
 with `workflow-db-migrate` and starts the `workflow` service. Alone, without a database (in-memory
 store) and with the participants wherever they run: see `.env.example`, then
 
@@ -71,5 +71,5 @@ local HTTP server, and the whole HTTP contract with both participants faked over
 
 ### What is missing
 
-The gateway route for `/api/v1/sagas` and the include in `barber-saas-infra`; the sign-up screen in
+The gateway route for `/api/v1/sagas` and the include in `barber-saas-infra-postgres`; the sign-up screen in
 `barber-saas-identity-auth-app`; the business process view of the saga in `16-bpmn`.

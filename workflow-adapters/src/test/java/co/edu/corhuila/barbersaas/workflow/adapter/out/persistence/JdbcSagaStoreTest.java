@@ -21,7 +21,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
  * Against a real workflow schema (db/ applied), as workflow_app. Runs only when
- * TEST_DATABASE_URL is set, e.g. against the instance of barber-saas-infra.
+ * TEST_DATABASE_URL is set, e.g. against the instance of barber-saas-infra-postgres.
  */
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
 class JdbcSagaStoreTest {

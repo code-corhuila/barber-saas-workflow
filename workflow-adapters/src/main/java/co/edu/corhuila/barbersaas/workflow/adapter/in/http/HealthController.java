@@ -4,7 +4,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Liveness probe for barber-saas-infra. Outside /api/, so it needs no token. */
+/** Liveness probe for barber-saas-infra-postgres. Outside /api/, so it needs no token. */
 @RestController
 public class HealthController {
 
