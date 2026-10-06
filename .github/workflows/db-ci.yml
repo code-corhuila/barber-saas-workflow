@@ -33,7 +33,7 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare the instance as barber-saas-infra does
+      - name: Prepare the instance as barber-saas-infra-postgres does
         env:
           PGPASSWORD: ci-only
         run: |
