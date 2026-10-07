@@ -28,13 +28,15 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 
-/** workflow-service.yaml end to end, with barbershop-api and identity-auth-api faked over real HTTP. */
+/** workflow-service.yaml end to end, with barbershop-api, platform-admin-api and identity-auth-api faked over real HTTP. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class OwnerOnboardingHttpTest {
 
     private static final List<String> CALLS = new CopyOnWriteArrayList<>();
     private static volatile int ownerStatus = 201;
+    private static volatile int planStatus = 204;
+    private static final String PLAN = "7b0e2f4a-1c3d-4e5f-8a9b-000000000002";
     private static final HttpServer PARTICIPANTS = participants();
 
     @Autowired
@@ -48,6 +50,7 @@ class OwnerOnboardingHttpTest {
         TestKeys.register(registry);
         String url = "http://127.0.0.1:" + PARTICIPANTS.getAddress().getPort();
         registry.add("BARBERSHOP_API_URL", () -> url);
+        registry.add("PLATFORM_ADMIN_API_URL", () -> url);
         registry.add("IDENTITY_AUTH_API_URL", () -> url);
         registry.add("PARTICIPANT_BACKOFF_MS", () -> "0");
     }
@@ -61,6 +64,7 @@ class OwnerOnboardingHttpTest {
     void reset() {
         CALLS.clear();
         ownerStatus = 201;
+        planStatus = 204;
     }
 
     @Test
@@ -71,12 +75,15 @@ class OwnerOnboardingHttpTest {
                 .andExpect(jsonPath("$.type").value("owner-onboarding"))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.completedSteps[0]").value("create-barbershop"))
-                .andExpect(jsonPath("$.completedSteps[1]").value("create-owner"))
+                .andExpect(jsonPath("$.completedSteps[1]").value("assign-plan"))
+                .andExpect(jsonPath("$.completedSteps[2]").value("create-owner"))
                 .andExpect(jsonPath("$.failedStep").doesNotExist())
                 .andReturn().getResponse().getContentAsString());
 
         String id = saga.get("id").asText();
+        String shop = saga.get("barbershopId").asText();
         assertEquals(List.of("POST /internal/v1/barbershops " + id + ":create-barbershop Bearer workflow-service-token",
+                "PUT /internal/v1/barbershops/" + shop + "/plan " + id + ":assign-plan Bearer workflow-service-token",
                 "POST /internal/v1/owners " + id + ":create-owner Bearer workflow-service-token"), CALLS);
     }
 
@@ -102,7 +109,34 @@ class OwnerOnboardingHttpTest {
                 .andExpect(jsonPath("$.failedStep").value("create-owner"))
                 .andExpect(jsonPath("$.failureReason").value("EMAIL_ALREADY_REGISTERED"))
                 .andExpect(jsonPath("$.userId").doesNotExist());
+        assertTrue(CALLS.get(3).startsWith("DELETE /internal/v1/barbershops/"));
+    }
+
+    @Test
+    void a_plan_no_longer_active_removes_the_barbershop_and_creates_no_owner() throws Exception {
+        planStatus = 422;
+
+        http.perform(start("onboard-0006", "plan@example.com", "SecurePass123"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("COMPENSATED"))
+                .andExpect(jsonPath("$.completedSteps[0]").value("create-barbershop"))
+                .andExpect(jsonPath("$.failedStep").value("assign-plan"))
+                .andExpect(jsonPath("$.failureReason").value("PLAN_NOT_AVAILABLE"));
+        assertEquals(3, CALLS.size());
         assertTrue(CALLS.get(2).startsWith("DELETE /internal/v1/barbershops/"));
+    }
+
+    @Test
+    void the_plan_is_required() throws Exception {
+        http.perform(post("/api/v1/sagas/owner-onboarding").header("Idempotency-Key", "onboard-0007")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"owner":{"fullName":"Andres Rojas","email":"noplan@example.com","password":"SecurePass123"},
+                                 "barbershop":{"name":"El Clasico","city":"Neiva"}}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0].field").value("planId"));
+        assertTrue(CALLS.isEmpty());
     }
 
     @Test
@@ -148,8 +182,9 @@ class OwnerOnboardingHttpTest {
     private static String request(String email, String password) {
         return """
                 {"owner":{"fullName":"Andres Rojas","email":"%s","password":"%s"},
-                 "barbershop":{"name":"El Clasico","city":"Neiva","address":"Calle 10 # 5-20"}}
-                """.formatted(email, password);
+                 "barbershop":{"name":"El Clasico","city":"Neiva","address":"Calle 10 # 5-20"},
+                 "planId":"%s"}
+                """.formatted(email, password, PLAN);
     }
 
     private static String bearer(String role, UUID barbershopId) throws Exception {
@@ -160,7 +195,7 @@ class OwnerOnboardingHttpTest {
         return json.readTree(content);
     }
 
-    /** barbershop-api and identity-auth-api as they answer the saga (DEC-SHOP-05, DEC-AUTH-04). */
+    /** barbershop-api, platform-admin-api and identity-auth-api as they answer the saga (DEC-SHOP-05, DEC-PLAT-04, DEC-AUTH-04). */
     private static HttpServer participants() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -170,7 +205,8 @@ class OwnerOnboardingHttpTest {
                 String key = exchange.getRequestHeaders().getFirst("Idempotency-Key");
                 CALLS.add(method + " " + path + (key == null ? "" : " " + key + " "
                         + exchange.getRequestHeaders().getFirst("Authorization")));
-                int status = method.equals("DELETE") ? 204 : path.endsWith("/owners") ? ownerStatus : 201;
+                int status = method.equals("DELETE") ? 204 : method.equals("PUT") ? planStatus
+                        : path.endsWith("/owners") ? ownerStatus : 201;
                 byte[] body = (status == 422 ? "{\"error\":\"BUSINESS_RULE_VIOLATION\"}"
                         : "{\"id\":\"" + UUID.randomUUID() + "\"}").getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(status, status == 204 ? -1 : body.length);

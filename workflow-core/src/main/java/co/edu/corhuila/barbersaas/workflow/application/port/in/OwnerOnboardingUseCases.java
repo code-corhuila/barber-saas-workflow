@@ -20,8 +20,8 @@ public interface OwnerOnboardingUseCases {
     /** Who reads a saga: SUPER_ADMIN reads any; an owner only the one that created their barbershop. */
     record Reader(boolean superAdmin, UUID barbershopId) { }
 
-    /** Runs the saga to its end and returns it in its final status (DEC-WF-02). */
-    Started start(Owner owner, Barbershop barbershop, String idempotencyKey);
+    /** Runs the saga to its end and returns it in its final status (DEC-WF-02), on the plan the owner picked (DEC-WF-05). */
+    Started start(Owner owner, Barbershop barbershop, UUID planId, String idempotencyKey);
 
     /** Empty when it does not exist or the reader may not see it: 404 either way. */
     Optional<OwnerOnboarding> find(UUID id, Reader reader);
