@@ -41,7 +41,8 @@ public class SagaController {
     public record BarbershopRequest(String name, String city, String address, String phone, Double latitude,
                                     Double longitude) { }
 
-    public record OwnerOnboardingRequest(OwnerRequest owner, BarbershopRequest barbershop) { }
+    /** planId: one of the active plans of GET /api/v1/plans, checked by platform-admin (DEC-WF-05). */
+    public record OwnerOnboardingRequest(OwnerRequest owner, BarbershopRequest barbershop, UUID planId) { }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SagaResponse(UUID id, String type, String status, List<String> completedSteps, String failedStep,
@@ -75,6 +76,9 @@ public class SagaController {
         }
         validateOwner(errors, body.owner());
         validateBarbershop(errors, body.barbershop());
+        if (body.planId() == null) {
+            errors.add(new FieldError("planId", "required"));
+        }
         if (!errors.isEmpty()) {
             throw new ValidationException("the request is not valid", errors);
         }
@@ -82,7 +86,7 @@ public class SagaController {
         BarbershopRequest b = body.barbershop();
         Started started = onboarding.start(new Owner(o.fullName().strip(), o.email().strip(), o.password(), o.phone()),
                 new Barbershop(b.name().strip(), b.city().strip(), b.address(), b.phone(), b.latitude(), b.longitude()),
-                idempotencyKey);
+                body.planId(), idempotencyKey);
         if (!started.created()) {
             return ResponseEntity.ok(SagaResponse.of(started.saga()));
         }
