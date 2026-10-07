@@ -4,6 +4,7 @@ import co.edu.corhuila.barbersaas.workflow.application.port.in.OwnerOnboardingUs
 import co.edu.corhuila.barbersaas.workflow.application.port.in.OwnerOnboardingUseCases.Owner;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.BarbershopParticipant;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.OwnerParticipant;
+import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.PlanParticipant;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.StepRejected;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.StepUnavailable;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -17,20 +18,23 @@ import java.util.UUID;
 
 /**
  * The internal operations the saga calls (07-api/authentication.md, internal operations):
- * barbershop-api DEC-SHOP-05 and identity-auth-api DEC-AUTH-04. Nothing here decides the saga;
+ * barbershop-api DEC-SHOP-05, platform-admin-api DEC-PLAT-04 and identity-auth-api DEC-AUTH-04. Nothing here decides the saga;
  * it only turns HTTP answers into a result, StepRejected or StepUnavailable.
  */
-public class HttpParticipants implements BarbershopParticipant, OwnerParticipant {
+public class HttpParticipants implements BarbershopParticipant, PlanParticipant, OwnerParticipant {
 
     private final ParticipantClient client;
     private final ObjectMapper json;
     private final String barbershopUrl;
+    private final String platformAdminUrl;
     private final String identityUrl;
 
-    public HttpParticipants(ParticipantClient client, ObjectMapper json, String barbershopUrl, String identityUrl) {
+    public HttpParticipants(ParticipantClient client, ObjectMapper json, String barbershopUrl, String platformAdminUrl,
+                            String identityUrl) {
         this.client = client;
         this.json = json;
         this.barbershopUrl = stripSlash(barbershopUrl);
+        this.platformAdminUrl = stripSlash(platformAdminUrl);
         this.identityUrl = stripSlash(identityUrl);
     }
 
@@ -53,6 +57,25 @@ public class HttpParticipants implements BarbershopParticipant, OwnerParticipant
         // 204 also when it was already gone (DEC-SHOP-05); 404 counts as removed too.
         if (response.statusCode() != 204 && response.statusCode() != 404) {
             throw new StepRejected("barbershop-api refused the removal with " + response.statusCode());
+        }
+    }
+
+    /** 204; a 4xx is the refusal of an unknown or inactive plan (DEC-PLAT-04). */
+    @Override
+    public void assignPlan(String stepKey, UUID barbershopId, UUID planId) {
+        String body;
+        try {
+            body = json.writeValueAsString(Map.of("planId", planId.toString()));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+        HttpResponse<String> response = client.send(HttpRequest.newBuilder(
+                        URI.create(platformAdminUrl + "/internal/v1/barbershops/" + barbershopId + "/plan"))
+                .header("Content-Type", "application/json")
+                .header("Idempotency-Key", stepKey)
+                .PUT(HttpRequest.BodyPublishers.ofString(body)), "platform-admin-api");
+        if (response.statusCode() != 204 && response.statusCode() != 200) {
+            throw new StepRejected("platform-admin-api answered " + response.statusCode() + " " + errorCode(response));
         }
     }
 
