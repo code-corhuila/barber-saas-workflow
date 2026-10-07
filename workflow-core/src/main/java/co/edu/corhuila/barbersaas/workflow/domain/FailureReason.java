@@ -7,5 +7,7 @@ public enum FailureReason {
     /** A participant did not answer after the bounded retries: sign up again. */
     STEP_UNAVAILABLE,
     /** The workflow restarted in the middle of the saga (DEC-WF-03): sign up again. */
-    INTERRUPTED
+    INTERRUPTED,
+    /** The plan the owner picked is unknown or no longer active (DEC-WF-05): pick another plan. */
+    PLAN_NOT_AVAILABLE
 }

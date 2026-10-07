@@ -28,6 +28,17 @@ class OwnerOnboardingTest {
     }
 
     @Test
+    void the_plan_step_runs_after_the_barbershop_step() {
+        OwnerOnboarding saga = OwnerOnboarding.start(UUID.randomUUID(), "key-00000001", "hash", NOW);
+
+        assertThrows(IllegalStateException.class, () -> saga.planAssigned(NOW));
+        saga.barbershopCreated(UUID.randomUUID(), NOW);
+        saga.planAssigned(NOW);
+        assertEquals(java.util.List.of(OwnerOnboardingStep.CREATE_BARBERSHOP, OwnerOnboardingStep.ASSIGN_PLAN),
+                saga.completedSteps());
+    }
+
+    @Test
     void a_finished_saga_does_not_change_again() {
         OwnerOnboarding saga = OwnerOnboarding.start(UUID.randomUUID(), "key-00000001", "hash", NOW);
         saga.barbershopCreated(UUID.randomUUID(), NOW);

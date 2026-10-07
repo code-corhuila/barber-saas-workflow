@@ -62,6 +62,16 @@ public final class OwnerOnboarding {
         updatedAt = now;
     }
 
+    /** The plan the owner picked is assigned to the barbershop just created (DEC-WF-05). */
+    public void planAssigned(Instant now) {
+        requireRunning();
+        if (barbershopId == null) {
+            throw new IllegalStateException("the plan step runs after the barbershop step");
+        }
+        completedSteps.add(OwnerOnboardingStep.ASSIGN_PLAN);
+        updatedAt = now;
+    }
+
     public void completed(UUID userId, Instant now) {
         requireRunning();
         if (barbershopId == null) {
