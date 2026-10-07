@@ -67,3 +67,20 @@ databaseChangeLog:
             relativeToChangelogFile: true
             splitStatements: false
             stripComments: false
+  - changeSet:
+      id: ddl-alter-005
+      author: Pipecerquera
+      labels: "HU-AUTH-003"
+      comment: "failure_reason also accepts PLAN_NOT_AVAILABLE (DEC-WF-05)."
+      changes:
+        - sqlFile:
+            path: 005_add_plan_not_available.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sqlFile:
+            path: rollbacks/005_add_plan_not_available.rollback.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
