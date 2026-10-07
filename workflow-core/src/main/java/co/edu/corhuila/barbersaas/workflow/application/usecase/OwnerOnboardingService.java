@@ -4,6 +4,7 @@ import co.edu.corhuila.barbersaas.workflow.application.port.in.OwnerOnboardingUs
 import co.edu.corhuila.barbersaas.workflow.application.port.out.IdGenerator;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.BarbershopParticipant;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.OwnerParticipant;
+import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.PlanParticipant;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.StepRejected;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.StepUnavailable;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.SagaStore;
@@ -20,8 +21,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The orchestrator of owner-onboarding (annex E): runs create-barbershop, then create-owner,
- * writes the saga after every step and, if the owner cannot be created, removes the barbershop.
+ * The orchestrator of owner-onboarding (annex E): runs create-barbershop, assign-plan and then
+ * create-owner, writes the saga after every step and, if a later step fails, removes the barbershop.
  * Steps run in this request; the saga answers in its final status (DEC-WF-02).
  */
 public class OwnerOnboardingService implements OwnerOnboardingUseCases {
@@ -30,22 +31,24 @@ public class OwnerOnboardingService implements OwnerOnboardingUseCases {
 
     private final SagaStore sagas;
     private final BarbershopParticipant barbershops;
+    private final PlanParticipant plans;
     private final OwnerParticipant owners;
     private final IdGenerator ids;
     private final Clock clock;
 
-    public OwnerOnboardingService(SagaStore sagas, BarbershopParticipant barbershops, OwnerParticipant owners,
-                                  IdGenerator ids, Clock clock) {
+    public OwnerOnboardingService(SagaStore sagas, BarbershopParticipant barbershops, PlanParticipant plans,
+                                  OwnerParticipant owners, IdGenerator ids, Clock clock) {
         this.sagas = sagas;
         this.barbershops = barbershops;
+        this.plans = plans;
         this.owners = owners;
         this.ids = ids;
         this.clock = clock;
     }
 
     @Override
-    public Started start(Owner owner, Barbershop barbershop, String idempotencyKey) {
-        String requestHash = requestHash(owner, barbershop);
+    public Started start(Owner owner, Barbershop barbershop, UUID planId, String idempotencyKey) {
+        String requestHash = requestHash(owner, barbershop, planId);
         Optional<OwnerOnboarding> previous = sagas.findByKey(idempotencyKey);
         if (previous.isPresent()) {
             return retry(previous.get(), requestHash);
@@ -69,15 +72,29 @@ public class OwnerOnboardingService implements OwnerOnboardingUseCases {
         }
         saga.barbershopCreated(barbershopId, clock.instant());
         sagas.update(saga);
+        try {
+            plans.assignPlan(saga.stepKey(OwnerOnboardingStep.ASSIGN_PLAN), barbershopId, planId);
+        } catch (StepRejected e) {
+            // platform-admin refuses only an unknown or inactive plan (DEC-PLAT-04).
+            compensate(saga, OwnerOnboardingStep.ASSIGN_PLAN, FailureReason.PLAN_NOT_AVAILABLE, e.getMessage());
+            sagas.update(saga);
+            return new Started(saga, true);
+        } catch (StepUnavailable e) {
+            compensate(saga, OwnerOnboardingStep.ASSIGN_PLAN, FailureReason.STEP_UNAVAILABLE, e.getMessage());
+            sagas.update(saga);
+            return new Started(saga, true);
+        }
+        saga.planAssigned(clock.instant());
+        sagas.update(saga);
 
         try {
             UUID userId = owners.createOwner(saga.stepKey(OwnerOnboardingStep.CREATE_OWNER), owner, barbershopId);
             saga.completed(userId, clock.instant());
         } catch (StepRejected e) {
             // The only business refusal left after the workflow's own validation: the e-mail exists.
-            compensate(saga, FailureReason.EMAIL_ALREADY_REGISTERED, e.getMessage());
+            compensate(saga, OwnerOnboardingStep.CREATE_OWNER, FailureReason.EMAIL_ALREADY_REGISTERED, e.getMessage());
         } catch (StepUnavailable e) {
-            compensate(saga, FailureReason.STEP_UNAVAILABLE, e.getMessage());
+            compensate(saga, OwnerOnboardingStep.CREATE_OWNER, FailureReason.STEP_UNAVAILABLE, e.getMessage());
         }
         sagas.update(saga);
         return new Started(saga, true);
@@ -101,7 +118,9 @@ public class OwnerOnboardingService implements OwnerOnboardingUseCases {
                                 + saga.stepKey(OwnerOnboardingStep.CREATE_BARBERSHOP), clock.instant());
             } else {
                 // The password is not stored, so create-owner cannot run again (DEC-WF-03).
-                compensate(saga, FailureReason.INTERRUPTED, "restarted during create-owner");
+                OwnerOnboardingStep step = saga.completedSteps().contains(OwnerOnboardingStep.ASSIGN_PLAN)
+                        ? OwnerOnboardingStep.CREATE_OWNER : OwnerOnboardingStep.ASSIGN_PLAN;
+                compensate(saga, step, FailureReason.INTERRUPTED, "restarted during " + step.wireName());
             }
             sagas.update(saga);
             recovered++;
@@ -109,13 +128,13 @@ public class OwnerOnboardingService implements OwnerOnboardingUseCases {
         return recovered;
     }
 
-    /** Undoes create-barbershop. If even that fails, the saga ends FAILED for a person to decide. */
-    private void compensate(OwnerOnboarding saga, FailureReason reason, String detail) {
+    /** Undoes create-barbershop (and with it assign-plan). If even that fails, a person decides (FAILED). */
+    private void compensate(OwnerOnboarding saga, OwnerOnboardingStep failed, FailureReason reason, String detail) {
         try {
             barbershops.deleteBarbershop(saga.barbershopId());
-            saga.compensated(OwnerOnboardingStep.CREATE_OWNER, reason, detail, clock.instant());
+            saga.compensated(failed, reason, detail, clock.instant());
         } catch (StepRejected | StepUnavailable e) {
-            saga.failed(OwnerOnboardingStep.CREATE_OWNER, reason,
+            saga.failed(failed, reason,
                     detail + "; compensation delete-barbershop failed: " + e.getMessage(), clock.instant());
         }
     }
@@ -128,12 +147,12 @@ public class OwnerOnboardingService implements OwnerOnboardingUseCases {
     }
 
     /** Every field but the password, which is never stored, not even hashed (DEC-WF-03). */
-    static String requestHash(Owner owner, Barbershop barbershop) {
+    static String requestHash(Owner owner, Barbershop barbershop, UUID planId) {
         String joined = String.join(String.valueOf(SEPARATOR), String.valueOf(owner.fullName()),
                 String.valueOf(owner.email()), String.valueOf(owner.phone()), String.valueOf(barbershop.name()),
                 String.valueOf(barbershop.city()), String.valueOf(barbershop.address()),
                 String.valueOf(barbershop.phone()), String.valueOf(barbershop.latitude()),
-                String.valueOf(barbershop.longitude()));
+                String.valueOf(barbershop.longitude()), String.valueOf(planId));
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(joined.getBytes(StandardCharsets.UTF_8)));

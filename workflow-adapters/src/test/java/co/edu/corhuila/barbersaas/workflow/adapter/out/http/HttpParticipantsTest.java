@@ -59,7 +59,7 @@ class HttpParticipantsTest {
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         ParticipantClient client = new ParticipantClient(HttpClient.newHttpClient(), "service-token",
                 Duration.ofSeconds(2), 3, Duration.ZERO);
-        participants = new HttpParticipants(client, new ObjectMapper(), base + "/", base);
+        participants = new HttpParticipants(client, new ObjectMapper(), base + "/", base, base);
     }
 
     @AfterEach
@@ -136,6 +136,25 @@ class HttpParticipantsTest {
 
         assertEquals("/internal/v1/owners", received.get(0).getRequestURI().getPath());
         assertTrue(bodies.get(0).contains("\"barbershopId\":\"" + barbershop + "\""));
+    }
+
+    @Test
+    void assign_plan_puts_the_plan_with_the_step_key_and_a_422_is_a_refusal() {
+        UUID barbershop = UUID.randomUUID();
+        UUID plan = UUID.randomUUID();
+        statuses.add(204);
+        answerBody = "{\"error\":\"BUSINESS_RULE_VIOLATION\"}";
+
+        participants.assignPlan("saga-1:assign-plan", barbershop, plan);
+        statuses.add(422);
+        StepRejected e = assertThrows(StepRejected.class,
+                () -> participants.assignPlan("saga-1:assign-plan", barbershop, plan));
+
+        assertEquals("PUT", received.get(0).getRequestMethod());
+        assertEquals("/internal/v1/barbershops/" + barbershop + "/plan", received.get(0).getRequestURI().getPath());
+        assertEquals("saga-1:assign-plan", received.get(0).getRequestHeaders().getFirst("Idempotency-Key"));
+        assertEquals("{\"planId\":\"" + plan + "\"}", bodies.get(0));
+        assertTrue(e.getMessage().contains("422 BUSINESS_RULE_VIOLATION"));
     }
 
     @Test

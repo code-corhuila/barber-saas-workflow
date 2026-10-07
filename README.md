@@ -30,8 +30,9 @@ Full policy: `00-governance/branching-policy.md` in `barber-saas-docs`.
 
 The orchestrator of the processes that cross domains, run as sagas (norm 5.8, annex E). Its
 contract is `07-api/contracts/openapi/workflow-service.yaml` in `barber-saas-docs`: the first saga
-is `owner-onboarding` (HU-AUTH-003), which creates a barbershop in `TRIAL` and then its owner, and
-removes the barbershop if the owner cannot be created. Saga state lives in the `workflow` schema of
+is `owner-onboarding` (HU-AUTH-003), which creates a barbershop in `TRIAL`, assigns it the plan the
+owner picked through platform-admin (`DEC-WF-05`) and then creates its owner, and removes the
+barbershop if a later step fails. Saga state lives in the `workflow` schema of
 the single PostgreSQL instance (ADR-009).
 
 Hexagonal, three Maven modules (ADR-012, annex C): `workflow-core` (sagas and use cases, no
@@ -71,5 +72,4 @@ local HTTP server, and the whole HTTP contract with both participants faked over
 
 ### What is missing
 
-The gateway route for `/api/v1/sagas` and the include in `barber-saas-infra-postgres`; the sign-up screen in
-`barber-saas-identity-auth-app`; the business process view of the saga in `16-bpmn`.
+The business process view of the saga in `16-bpmn`.

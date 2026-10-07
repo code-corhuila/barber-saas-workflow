@@ -13,6 +13,7 @@ import co.edu.corhuila.barbersaas.workflow.application.port.in.OwnerOnboardingUs
 import co.edu.corhuila.barbersaas.workflow.application.port.in.OwnerOnboardingUseCases.Started;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.BarbershopParticipant;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.OwnerParticipant;
+import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.PlanParticipant;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.StepRejected;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.Participants.StepUnavailable;
 import co.edu.corhuila.barbersaas.workflow.application.port.out.SagaStore;
@@ -37,9 +38,11 @@ class OwnerOnboardingServiceTest {
 
     private static final Owner OWNER = new Owner("Andres Rojas", "andres@example.com", "SecurePass123", null);
     private static final Barbershop SHOP = new Barbershop("El Clasico", "Neiva", null, null, null, null);
+    private static final UUID PLAN = UUID.fromString("7b0e2f4a-1c3d-4e5f-8a9b-000000000002");
 
     private FakeSagas sagas;
     private FakeBarbershops barbershops;
+    private FakePlans plans;
     private FakeOwners owners;
     private List<String> calls;
     private OwnerOnboardingService service;
@@ -49,39 +52,41 @@ class OwnerOnboardingServiceTest {
         calls = new ArrayList<>();
         sagas = new FakeSagas(calls);
         barbershops = new FakeBarbershops(calls);
+        plans = new FakePlans(calls);
         owners = new FakeOwners(calls);
-        service = new OwnerOnboardingService(sagas, barbershops, owners, UUID::randomUUID,
+        service = new OwnerOnboardingService(sagas, barbershops, plans, owners, UUID::randomUUID,
                 Clock.fixed(Instant.parse("2026-10-05T12:00:00Z"), ZoneOffset.UTC));
     }
 
     @Test
-    void the_happy_path_creates_the_barbershop_then_the_owner_and_saves_after_each_step() {
-        Started started = service.start(OWNER, SHOP, "key-00000001");
+    void the_happy_path_creates_the_barbershop_assigns_the_plan_then_the_owner_and_saves_after_each_step() {
+        Started started = service.start(OWNER, SHOP, PLAN, "key-00000001");
 
         OwnerOnboarding saga = started.saga();
         assertTrue(started.created());
         assertEquals(SagaStatus.COMPLETED, saga.status());
-        assertEquals(List.of(OwnerOnboardingStep.CREATE_BARBERSHOP, OwnerOnboardingStep.CREATE_OWNER),
-                saga.completedSteps());
+        assertEquals(List.of(OwnerOnboardingStep.CREATE_BARBERSHOP, OwnerOnboardingStep.ASSIGN_PLAN,
+                OwnerOnboardingStep.CREATE_OWNER), saga.completedSteps());
         assertEquals(barbershops.created, saga.barbershopId());
         assertEquals(owners.created, saga.userId());
         assertEquals(List.of("insert RUNNING", "create-barbershop " + saga.id() + ":create-barbershop",
-                "update RUNNING", "create-owner " + saga.id() + ":create-owner", "update COMPLETED"), calls);
+                "update RUNNING", "assign-plan " + saga.id() + ":assign-plan " + PLAN, "update RUNNING",
+                "create-owner " + saga.id() + ":create-owner", "update COMPLETED"), calls);
     }
 
     @Test
     void the_owner_step_receives_the_barbershop_just_created() {
-        service.start(OWNER, SHOP, "key-00000001");
+        service.start(OWNER, SHOP, PLAN, "key-00000001");
 
         assertEquals(barbershops.created, owners.barbershopReceived);
     }
 
     @Test
     void a_retry_with_the_same_key_returns_the_same_saga_and_runs_no_step() {
-        OwnerOnboarding first = service.start(OWNER, SHOP, "key-00000001").saga();
+        OwnerOnboarding first = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
         calls.clear();
 
-        Started retry = service.start(OWNER, SHOP, "key-00000001");
+        Started retry = service.start(OWNER, SHOP, PLAN, "key-00000001");
 
         assertFalse(retry.created());
         assertEquals(first.id(), retry.saga().id());
@@ -90,39 +95,72 @@ class OwnerOnboardingServiceTest {
 
     @Test
     void the_same_key_with_another_body_is_refused() {
-        service.start(OWNER, SHOP, "key-00000001");
+        service.start(OWNER, SHOP, PLAN, "key-00000001");
         Owner other = new Owner("Other", "other@example.com", "SecurePass123", null);
 
-        assertThrows(IdempotencyKeyReused.class, () -> service.start(other, SHOP, "key-00000001"));
+        assertThrows(IdempotencyKeyReused.class, () -> service.start(other, SHOP, PLAN, "key-00000001"));
     }
 
     @Test
     void the_password_does_not_change_the_request_hash() {
         Owner otherPassword = new Owner(OWNER.fullName(), OWNER.email(), "AnotherPass456", OWNER.phone());
 
-        assertEquals(OwnerOnboardingService.requestHash(OWNER, SHOP),
-                OwnerOnboardingService.requestHash(otherPassword, SHOP));
+        assertEquals(OwnerOnboardingService.requestHash(OWNER, SHOP, PLAN),
+                OwnerOnboardingService.requestHash(otherPassword, SHOP, PLAN));
     }
 
     @Test
     void an_email_already_registered_removes_the_barbershop_and_compensates() {
         owners.failure = new StepRejected("422 BUSINESS_RULE_VIOLATION");
 
-        OwnerOnboarding saga = service.start(OWNER, SHOP, "key-00000001").saga();
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
 
         assertEquals(SagaStatus.COMPENSATED, saga.status());
         assertEquals(OwnerOnboardingStep.CREATE_OWNER, saga.failedStep());
         assertEquals(FailureReason.EMAIL_ALREADY_REGISTERED, saga.failureReason());
-        assertEquals(List.of(OwnerOnboardingStep.CREATE_BARBERSHOP), saga.completedSteps());
+        assertEquals(List.of(OwnerOnboardingStep.CREATE_BARBERSHOP, OwnerOnboardingStep.ASSIGN_PLAN),
+                saga.completedSteps());
         assertEquals(List.of(barbershops.created), barbershops.deleted);
         assertNull(saga.userId());
+    }
+
+    @Test
+    void a_plan_not_available_removes_the_barbershop_and_never_creates_the_owner() {
+        plans.failure = new StepRejected("platform-admin-api answered 422 BUSINESS_RULE_VIOLATION");
+
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
+
+        assertEquals(SagaStatus.COMPENSATED, saga.status());
+        assertEquals(OwnerOnboardingStep.ASSIGN_PLAN, saga.failedStep());
+        assertEquals(FailureReason.PLAN_NOT_AVAILABLE, saga.failureReason());
+        assertEquals(List.of(OwnerOnboardingStep.CREATE_BARBERSHOP), saga.completedSteps());
+        assertEquals(List.of(barbershops.created), barbershops.deleted);
+        assertNull(owners.barbershopReceived);
+    }
+
+    @Test
+    void platform_admin_not_answering_also_compensates() {
+        plans.failure = new StepUnavailable("platform-admin-api answered 503 after 3 attempts");
+
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
+
+        assertEquals(OwnerOnboardingStep.ASSIGN_PLAN, saga.failedStep());
+        assertEquals(FailureReason.STEP_UNAVAILABLE, saga.failureReason());
+        assertEquals(1, barbershops.deleted.size());
+    }
+
+    @Test
+    void another_plan_with_the_same_key_is_refused() {
+        service.start(OWNER, SHOP, PLAN, "key-00000001");
+
+        assertThrows(IdempotencyKeyReused.class, () -> service.start(OWNER, SHOP, UUID.randomUUID(), "key-00000001"));
     }
 
     @Test
     void identity_not_answering_also_compensates() {
         owners.failure = new StepUnavailable("timeout after 3 attempts");
 
-        OwnerOnboarding saga = service.start(OWNER, SHOP, "key-00000001").saga();
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
 
         assertEquals(SagaStatus.COMPENSATED, saga.status());
         assertEquals(FailureReason.STEP_UNAVAILABLE, saga.failureReason());
@@ -134,7 +172,7 @@ class OwnerOnboardingServiceTest {
         owners.failure = new StepRejected("422");
         barbershops.deleteFailure = new StepUnavailable("barbershop-api down");
 
-        OwnerOnboarding saga = service.start(OWNER, SHOP, "key-00000001").saga();
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
 
         assertEquals(SagaStatus.FAILED, saga.status());
         assertEquals(OwnerOnboardingStep.CREATE_OWNER, saga.failedStep());
@@ -145,7 +183,7 @@ class OwnerOnboardingServiceTest {
     void a_failed_first_step_undoes_nothing_and_never_calls_identity() {
         barbershops.createFailure = new StepUnavailable("barbershop-api down");
 
-        OwnerOnboarding saga = service.start(OWNER, SHOP, "key-00000001").saga();
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
 
         assertEquals(SagaStatus.COMPENSATED, saga.status());
         assertEquals(OwnerOnboardingStep.CREATE_BARBERSHOP, saga.failedStep());
@@ -156,7 +194,7 @@ class OwnerOnboardingServiceTest {
 
     @Test
     void an_owner_reads_only_the_saga_of_their_barbershop() {
-        OwnerOnboarding saga = service.start(OWNER, SHOP, "key-00000001").saga();
+        OwnerOnboarding saga = service.start(OWNER, SHOP, PLAN, "key-00000001").saga();
 
         assertTrue(service.find(saga.id(), new Reader(false, saga.barbershopId())).isPresent());
         assertTrue(service.find(saga.id(), new Reader(false, UUID.randomUUID())).isEmpty());
@@ -175,6 +213,7 @@ class OwnerOnboardingServiceTest {
         assertEquals(1, service.recoverInterrupted(Duration.ofMinutes(5)));
 
         assertEquals(SagaStatus.COMPENSATED, saga.status());
+        assertEquals(OwnerOnboardingStep.ASSIGN_PLAN, saga.failedStep());
         assertEquals(FailureReason.INTERRUPTED, saga.failureReason());
         assertEquals(List.of(barbershop), barbershops.deleted);
     }
@@ -257,6 +296,22 @@ class OwnerOnboardingServiceTest {
                 throw deleteFailure;
             }
             deleted.add(barbershopId);
+        }
+    }
+
+    private static final class FakePlans implements PlanParticipant {
+        RuntimeException failure;
+        private final List<String> calls;
+
+        FakePlans(List<String> calls) {
+            this.calls = calls;
+        }
+
+        public void assignPlan(String stepKey, UUID barbershopId, UUID planId) {
+            if (failure != null) {
+                throw failure;
+            }
+            calls.add("assign-plan " + stepKey + " " + planId);
         }
     }
 
