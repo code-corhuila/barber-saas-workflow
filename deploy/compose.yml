@@ -19,6 +19,7 @@ services:
       # Its own service token, sub barber-saas-workflow (07-api/authentication.md).
       SERVICE_TOKEN: ${WORKFLOW_SERVICE_TOKEN:?run barber-saas-infra-postgres/scripts/dev-keys.sh}
       BARBERSHOP_API_URL: http://barbershop-api:8080
+      PLATFORM_ADMIN_API_URL: http://platform-admin-api:8080
       IDENTITY_AUTH_API_URL: http://identity-auth-api:8080
       DB_POOL_MAX: "5"
     healthcheck:

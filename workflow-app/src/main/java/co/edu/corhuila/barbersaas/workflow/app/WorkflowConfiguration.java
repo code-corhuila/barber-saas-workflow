@@ -63,6 +63,7 @@ public class WorkflowConfiguration {
     HttpParticipants participants(ObjectMapper json,
                                   @Value("${SERVICE_TOKEN:}") String serviceToken,
                                   @Value("${BARBERSHOP_API_URL:http://barbershop-api:8080}") String barbershopUrl,
+                                  @Value("${PLATFORM_ADMIN_API_URL:http://platform-admin-api:8080}") String platformAdminUrl,
                                   @Value("${IDENTITY_AUTH_API_URL:http://identity-auth-api:8080}") String identityUrl,
                                   @Value("${PARTICIPANT_TIMEOUT_MS:3000}") long timeoutMs,
                                   @Value("${PARTICIPANT_MAX_ATTEMPTS:3}") int maxAttempts,
@@ -70,12 +71,13 @@ public class WorkflowConfiguration {
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
         ParticipantClient client = new ParticipantClient(http, serviceToken, Duration.ofMillis(timeoutMs), maxAttempts,
                 Duration.ofMillis(backoffMs));
-        return new HttpParticipants(client, json, barbershopUrl, identityUrl);
+        return new HttpParticipants(client, json, barbershopUrl, platformAdminUrl, identityUrl);
     }
 
     @Bean
     OwnerOnboardingUseCases ownerOnboarding(SagaStore sagas, HttpParticipants participants) {
-        return new OwnerOnboardingService(sagas, participants, participants, UUID::randomUUID, Clock.systemUTC());
+        return new OwnerOnboardingService(sagas, participants, participants, participants, UUID::randomUUID,
+                Clock.systemUTC());
     }
 
     /** A saga left RUNNING by a restart is ended at startup, compensating what it can (DEC-WF-03). */

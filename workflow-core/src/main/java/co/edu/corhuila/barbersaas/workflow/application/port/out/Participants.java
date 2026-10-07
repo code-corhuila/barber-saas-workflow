@@ -19,6 +19,11 @@ public final class Participants {
         void deleteBarbershop(UUID barbershopId);
     }
 
+    /** platform-admin checks the plan is active and assigns it (DEC-PLAT-04). Idempotent. */
+    public interface PlanParticipant {
+        void assignPlan(String stepKey, UUID barbershopId, UUID planId);
+    }
+
     public interface OwnerParticipant {
         UUID createOwner(String stepKey, Owner owner, UUID barbershopId);
     }
